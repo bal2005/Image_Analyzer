@@ -6,7 +6,15 @@ import tensorflow as tf
 import numpy as np
 from tensorflow.keras.preprocessing import image
 from PIL import Image
+import cv2
+import numpy as np
 st.set_page_config(page_title="Complaint Redressal Analyzer", layout="centered")
+
+def is_image_blurry(img_file, threshold=2000.0):
+    img = Image.open(img_file).convert("L")  # Convert to grayscale
+    img_np = np.array(img)
+    laplacian_var = cv2.Laplacian(img_np, cv2.CV_64F).var()
+    return laplacian_var < threshold, laplacian_var
 
 # ---------- 🔐 Load Gemini API Key ----------
 load_dotenv()
@@ -19,38 +27,50 @@ client = OpenAI(
 
 # ---------- 📊 Department Info ----------
 departments = [
-    "Health", "Education", "Town Planning", "Electrical", "Roads",
-    "Parks", "Solid Waste Management", "Storm Water Drain", "Land and Estates"
+    "Road Work", 
+    "School Infrastructure Damage", 
+    "Sewage and Water Stagnation", 
+    "Street Light Issue", 
+    "Toilet Issue", 
+    "Garbage", 
+    "Not Maintained Parks", 
+    "Road Damage", 
+    "Shop Obstructing Pathway", 
+    "Tree Obstructing Road"
 ]
 
 few_shot_examples = """
-Complaint: "Garbage has not been collected for a week and it's starting to smell."
-Department: Solid Waste Management
+Complaint: "The repair work on the main road has been going on for weeks without completion."
+Issue: Road Work
 
-Complaint: "The park near my house has broken swings and overgrown grass."
-Department: Parks
+Complaint: "The local school building has cracked walls and damaged classrooms."
+Issue: School Infrastructure Damage
 
-Complaint: "There is a huge pothole near the main junction which is causing traffic."
-Department: Roads
+Complaint: "There is stagnant water in our street that smells and breeds mosquitoes."
+Issue: Sewage and Water Stagnation
 
-Complaint: "Street lights are not working in our neighborhood."
-Department: Electrical
+Complaint: "The streetlight on our lane hasn’t been working for days, it’s completely dark at night."
+Issue: Street Light Issue
 
-Complaint: "There is water logging in front of my house after yesterday's rain."
-Department: Storm Water Drain
+Complaint: "The public toilet near the market is always locked or in a filthy condition."
+Issue: Toilet Issue
 
-Complaint: "The government school near us has broken benches and no toilets."
-Department: Education
+Complaint: "Garbage bins are overflowing and no one has come to collect the waste."
+Issue: Garbage
 
-Complaint: "There is unauthorized construction happening on a public land."
-Department: Land and Estates
+Complaint: "The neighborhood park is full of weeds, broken benches, and rusted play equipment."
+Issue: Not Maintained Parks
 
-Complaint: "The local clinic is understaffed and lacks basic facilities."
-Department: Health
+Complaint: "There’s a large pothole on the road near the flyover, making it dangerous for vehicles."
+Issue: Road Damage
 
-Complaint: "Unauthorized structures are affecting road expansion."
-Department: Town Planning
+Complaint: "A small shop is blocking the footpath, making it hard for pedestrians to walk."
+Issue: Shop Obstructing Pathway
+
+Complaint: "A tree has fallen on the road and is blocking traffic for hours."
+Issue: Tree Obstructing Road
 """
+
 
 # ---------- 🧠 LLM-Based Text Classifier ----------
 def classify_complaint(complaint_text):
@@ -81,10 +101,21 @@ Department:"""
 # ---------- 📷 Image Model Setup ----------
 @st.cache_resource
 def load_model():
-    return tf.keras.models.load_model("street_issue_classifier.h5")
+    return tf.keras.models.load_model("issue_classifier.h5")
 
 model = load_model()
-class_labels = ['Flooding', 'Road_damage', 'Street_light', 'Garbage']
+class_labels = [
+    "Road Work", 
+    "School Infrastructure Damage", 
+    "Sewage and Water Stagnation", 
+    "Street Light Issue", 
+    "Toilet Issue", 
+    "Garbage", 
+    "Not Maintained Parks", 
+    "Road Damage", 
+    "Shop Obstructing Pathway", 
+    "Tree Obstructing Road"
+]
 
 def preprocess_image(img_file, target_size=(224, 224)):
     img = Image.open(img_file).convert("RGB").resize(target_size)
@@ -114,32 +145,50 @@ st.title("📌 Complaint Redressal Analyzer (Text + Image)")
 st.header("✍️ Step 1: Enter Civic Complaint")
 complaint_input = st.text_area("Enter your complaint text:", height=150)
 
+default_index = 0  # Default index for dropdown preselection
 if complaint_input.strip():
     with st.spinner("Classifying text..."):
         predicted_department = classify_complaint(complaint_input)
+        # Find closest matching label index for dropdown preselection
+        try:
+            default_index = class_labels.index(predicted_department)
+        except ValueError:
+            default_index = 0  # Fallback if no match found
+
     st.success(f"✅ Predicted Department: **{predicted_department}**")
 else:
     predicted_department = None
 
 st.markdown("---")
-st.header("🖼️ Step 2: Validate with Image (Optional)")
+st.header("🖼️ Step 2: Validate with Image")
 
-selected_type = st.selectbox("📋 Select Expected Image Type", class_labels)
+selected_type = class_labels[default_index]
+st.info(f"📋 Predicted Issue Type: **{selected_type}**")
+
+
 uploaded_file = st.file_uploader("📤 Upload an image", type=["jpg", "jpeg", "png"])
 
 if uploaded_file:
     st.image(uploaded_file, caption="🖼 Uploaded Image Preview", use_column_width=True)
 
-    with st.spinner("🔍 Validating Image..."):
-        predicted_label, confidence = classify_image(uploaded_file)
+    # Check image quality
+    is_blur, blur_score = is_image_blurry(uploaded_file)
+    st.write(f"🔍 **Blurriness Score**: `{blur_score:.2f}`")
 
-    st.write(f"🔎 **Predicted Category**: `{predicted_label}`")
-    st.write(f"📊 **Confidence Score**: `{confidence:.2f}`")
-
-    if predicted_label == selected_type and confidence >= 0.7:
-        if st.button("✅ Confirm and Upload"):
-            path = save_image(uploaded_file)
-            st.success(f"📥 Image successfully uploaded to `{path}`.")
+    if is_blur:
+        st.error("❌ Image is too blurry. Please upload a clearer image.")
     else:
-        st.warning("⚠️ Image does not match selected type or confidence too low.")
+        with st.spinner("🔍 Validating Image..."):
+            predicted_label, confidence = classify_image(uploaded_file)
+
+        st.write(f"🔎 **Predicted Category**: `{predicted_label}`")
+        st.write(f"📊 **Confidence Score**: `{confidence:.2f}`")
+
+        if predicted_label == selected_type and confidence >= 0.7:
+            if st.button("✅ Confirm and Upload"):
+                path = save_image(uploaded_file)
+                st.success(f"📥 Image successfully uploaded to `{path}`.")
+        else:
+            st.warning("⚠️ Image does not match selected type or confidence too low.")
+
 

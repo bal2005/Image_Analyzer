@@ -8,12 +8,24 @@ import os
 # Load model
 @st.cache_resource
 def load_model():
-    return tf.keras.models.load_model("street_issue_classifier.h5")
+    return tf.keras.models.load_model("issue_classifier.h5")
 
 model = load_model()
 
 # Category labels - ensure order matches training
-class_labels = ['Flooding', 'Road_damage', 'Street_light', 'Garbage']
+class_labels = [
+    "Road_work", 
+    "School_damage", 
+    "Sewage_and_Water_Stagnation", 
+    "Street_Light_Issue", 
+    "Toilet_Issue", 
+    "garbage", 
+    "not_maintained_parks", 
+    "road_damage", 
+    "shop_obstructing_pathway", 
+    "tree_obstructing_road"
+]
+
 
 # Image preprocessing
 def preprocess_image(img_file, target_size=(224, 224)):
